@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -static -Wall
 TARGET = led_tcp_control
-LED_PATH ?= "/sys/devices/platform/gpio-leds/leds/user-led2/brightness"
+LED_PATH ?= \"/sys/devices/platform/gpio-leds/leds/user-led2/brightness\"
 
 
 .PHONY: venv
