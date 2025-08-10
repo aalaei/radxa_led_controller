@@ -4,8 +4,8 @@ After=network.target
 
 [Service]
 User=radxa
-WorkingDirectory=/home/radxa/git/led_controller
-ExecStart=/home/radxa/git/led_controller/env/bin/python /home/radxa/git/led_controller/app.py
+WorkingDirectory=/home/radxa/git/radxa_led_controller
+ExecStart=/home/radxa/git/radxa_led_controller/env/bin/python /home/radxa/git/radxa_led_controller/app.py
 Restart=always
 
 [Install]
