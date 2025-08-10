@@ -1,0 +1,12 @@
+[Unit]
+Description=LED Controller Application
+After=network.target
+
+[Service]
+User=radxa
+WorkingDirectory=/home/radxa/git/led_controller
+ExecStart=/home/radxa/git/led_controller/env/bin/python /home/radxa/git/led_controller/app.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
