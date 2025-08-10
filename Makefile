@@ -19,14 +19,14 @@ install: $(TARGET)
 install-service:
 	sudo cp led_controller.service /etc/systemd/system/led_controller.service
 	sudo systemctl daemon-reload
-	sudo systemctl enable led_control.service
-	sudo systemctl start led_control.service
+	sudo systemctl enable led_controller.service
+	sudo systemctl start led_controller.service
 
 venv:
 	python3 -m venv env
 	. env/bin/activate && pip install -r requirements.txt
 
-setup: venv install install-service
+setup: install venv install-service
 
 clean:
 	rm -f $(TARGET)
