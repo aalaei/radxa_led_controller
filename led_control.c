@@ -58,9 +58,9 @@ void list_leds() {
     for (size_t i = 0; i < gl.gl_pathc; ++i) {
         char *path_copy = strdup(gl.gl_pathv[i]);
         if (path_copy == NULL) continue;
-        char *brightness_dir = dirname(path_copy);
-        char *led_name_dir = dirname(brightness_dir);
-        char *led_name = basename(led_name_dir);
+        char *brightness_dir = dirname(path_copy); // .../leds/radxa:blue:user
+        char *led_name = basename(brightness_dir); // radxa:blue:user
+        
         printf("%s\n", led_name);
         free(path_copy);
     }
@@ -78,11 +78,9 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
     
-    // Sort the paths to ensure consistent default LED selection
     qsort(gl.gl_pathv, gl.gl_pathc, sizeof(char *), (int(*)(const void *, const void *))strcmp);
 
     if (argc < 2) {
-        // No arguments provided, use the first LED as default
         const char *default_led_path = gl.gl_pathv[0];
         int state = get_led_state(default_led_path);
         if (state != -1) {
@@ -140,7 +138,6 @@ int main(int argc, char *argv[]) {
         return EXIT_SUCCESS;
     }
     
-    // Default behavior for direct state change on the first LED
     const char *default_led_path = gl.gl_pathv[0];
     int val = atoi(argv[1]);
     set_led_state(default_led_path, val > 0 ? 1 : 0);
