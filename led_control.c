@@ -79,10 +79,8 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    // Sort the paths for consistent default LED selection
-    qsort(gl.gl_pathv, gl.gl_pathc, sizeof(char *), (int(*)(const void *, const void *))strcmp);
-
     const char *led_path_to_open = NULL;
+    char *target_led_name = NULL;
 
     if (argc < 2) {
         // Default to the first LED found
@@ -94,26 +92,32 @@ int main(int argc, char *argv[]) {
             return EXIT_FAILURE;
         }
         
-        const char *led_name = argv[2];
-        char path_pattern[256];
-        snprintf(path_pattern, sizeof(path_pattern), "/sys/devices/platform/*leds/leds/%s/brightness", led_name);
+        target_led_name = argv[2];
+        for (size_t i = 0; i < gl.gl_pathc; i++) {
+            char *path_copy = strdup(gl.gl_pathv[i]);
+            char *brightness_dir = dirname(path_copy);
+            char *led_name = basename(brightness_dir);
+            
+            if (strcmp(led_name, target_led_name) == 0) {
+                led_path_to_open = gl.gl_pathv[i];
+                free(path_copy);
+                break;
+            }
+            free(path_copy);
+        }
 
-        glob_t gl_name;
-        int ret_name = glob(path_pattern, GLOB_NOCHECK, NULL, &gl_name);
-        if (ret_name != 0 || gl_name.gl_pathc == 0) {
-            fprintf(stderr, "LED '%s' not found.\n", led_name);
+        if (led_path_to_open == NULL) {
+            fprintf(stderr, "LED '%s' not found.\n", target_led_name);
             globfree(&gl);
-            globfree(&gl_name);
             return EXIT_FAILURE;
         }
-        led_path_to_open = gl_name.gl_pathv[0];
-        globfree(&gl_name);
+
     } else {
         // Default behavior for direct state change
         led_path_to_open = gl.gl_pathv[0];
     }
-    
-    // Open the LED file while running as root (due to setuid)
+
+    // Now, open the determined file path
     int led_fd = open(led_path_to_open, O_RDWR);
     if (led_fd < 0) {
         perror("Failed to open LED file");
@@ -125,30 +129,28 @@ int main(int argc, char *argv[]) {
     drop_privileges();
 
     // Now, perform read or write operations using the opened file descriptor
-    if (argc < 2) {
-        // Get state of default LED
-        int state = get_led_state(led_fd);
-        if (state != -1) {
-            printf("%d\n", state);
-        }
-    } else if (strcmp(argv[1], "--name") == 0) {
+    if (target_led_name) { // if the --name argument was used
         if (argc == 3) {
-            // Get state of named LED
             int state = get_led_state(led_fd);
             if (state != -1) {
                 printf("%d\n", state);
             }
         } else if (argc == 4) {
-            // Set state of named LED
             int val = atoi(argv[3]);
             set_led_state(led_fd, val > 0 ? 1 : 0);
         }
-    } else {
-        // Set state of default LED
-        int val = atoi(argv[1]);
-        set_led_state(led_fd, val > 0 ? 1 : 0);
+    } else { // default or single argument case
+        if (argc < 2) {
+            int state = get_led_state(led_fd);
+            if (state != -1) {
+                printf("%d\n", state);
+            }
+        } else {
+            int val = atoi(argv[1]);
+            set_led_state(led_fd, val > 0 ? 1 : 0);
+        }
     }
-    
+
     close(led_fd);
     globfree(&gl);
     return EXIT_SUCCESS;

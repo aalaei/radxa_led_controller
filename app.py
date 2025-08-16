@@ -81,7 +81,7 @@ def led_controller():
     if request.method == 'POST':
         data = request.get_json()
         if 'status' in data:
-            set_led(1 if data['status']=="on" else 0)
+            set_led(1 if data['status']=="on" else 0, led_name)
             return jsonify({"message": "LED state updated", "state": get_led(led_name)})
         else:
             return jsonify({"error": "Invalid data"}), 400
