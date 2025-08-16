@@ -64,11 +64,18 @@ def list_leds():
     AVAILABLE_LEDS = get_led_list()
     return jsonify({"leds": AVAILABLE_LEDS})
 
-@app.route('/led', methods=['POST', 'GET'])
-def led_controller():
+
+def get_led_name():
     led_name = request.args.get("name")
+    if led_name is None:
+        led_name = AVAILABLE_LEDS[0] if AVAILABLE_LEDS else None
     if not led_name or led_name not in AVAILABLE_LEDS:
         return jsonify({"error": "Invalid or missing LED name"}), 400
+    return led_name
+
+@app.route('/led', methods=['POST', 'GET'])
+def led_controller():
+    led_name = get_led_name()
     if request.method == 'GET':
         return jsonify({"state": get_led(led_name)})
     if request.method == 'POST':
@@ -83,7 +90,7 @@ threads = []
 
 @app.route('/led/pattern', methods=['POST'])
 def led_controller_pattern():
-    led_name = request.args.get("name")
+    led_name = get_led_name()
     if request.method == 'POST':
         data = request.get_json()
         fileds=["type", "cnt", 'delay', 'val']
@@ -95,16 +102,16 @@ def led_controller_pattern():
         id = uuid4().hex
         stop_event = threading.Event()
         t = threading.Thread(target=led_pattern, args=(id, led_name, data["type"], data["cnt"], data["delay"], data["val"],stop_event))
-        threads.append((t, stop_event))
+        threads.append((led_name,t, stop_event))
         t.start()       
         return jsonify({"message": "set"})
 
 @app.route('/led/pattern', methods=['DELETE'])
 def led_controller_pattern_evict():
-        led_name = request.args.get("name")
-        if not led_name or led_name not in AVAILABLE_LEDS:
-            return jsonify({"error": "Invalid or missing LED name"}), 400
-        for t, e in threads:
+        led_name = get_led_name()
+        for name, t, e in threads:
+            if name != led_name:
+                continue
             e.set()
             t.join()
         return jsonify({"message": "removed all"})
