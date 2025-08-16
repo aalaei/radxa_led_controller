@@ -4,68 +4,147 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
-#ifndef LED_PATH
-#define LED_PATH "/sys/devices/platform/gpio-leds/leds/user-led2/brightness"
+#include <libgen.h>
+#include <glob.h>
+
+#ifndef LED_BASE_PATH
+#define LED_BASE_PATH "/sys/devices/platform/*leds/leds/*/brightness"
 #endif
-int led_fd;
 
-void cleanup(int signum) {
-    if (led_fd > 0) {
-        close(led_fd);
-        printf("LED file closed.\n");
-    }
-    exit(EXIT_SUCCESS);
-}
-
-void set_led(int state) {
-    if (led_fd < 0) {
-        fprintf(stderr, "LED file not open\n");
-        return;
-    }
-
-    char buffer[2];
-    snprintf(buffer, sizeof(buffer), "%d", state);
-    write(led_fd, buffer, strlen(buffer));
-}
-int get_led(){
-    if (led_fd < 0) {
-        fprintf(stderr, "LED file not open\n");
-        return -1;
-    }
-    char buffer[2];
-    int state;
-    lseek(led_fd, 0, SEEK_SET);
-    read(led_fd, buffer, sizeof(buffer) - 1);
-    buffer[1] = '\0'; // Null-terminate the buffer
-    // printf(">>%s\n", buffer);
-    sscanf(buffer, "%d", &state);
-    return state;
-}
 void drop_privileges() {
     setgid(getgid());
     setuid(getuid());
 }
 
-int main(int argc, char *argv[]) {
-    
-
-    // Open LED file before dropping privileges
-    led_fd = open(LED_PATH, O_RDWR);
-    if (led_fd < 0) {
-        perror("Failed to open LED file");
-        exit(EXIT_FAILURE);
-    }
-    // Drop privileges after opening the LED file
-    drop_privileges();
-    if(argc<2){
-        printf("%d", get_led());
+int get_led_state(const char *path) {
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) {
+        perror("Failed to open LED file for reading");
         return -1;
     }
-    int val=0;
-    sscanf(argv[1], "%d",&val);
-    if (val>0)
-        set_led(1);
-    else
-        set_led(0);
-    return 0;
+    char buffer[2];
+    int state;
+    ssize_t bytes_read = read(fd, buffer, sizeof(buffer) - 1);
+    close(fd);
+
+    if (bytes_read <= 0) {
+        return -1;
+    }
+    buffer[bytes_read] = '\0';
+    sscanf(buffer, "%d", &state);
+    return state;
+}
+
+void set_led_state(const char *path, int state) {
+    int fd = open(path, O_WRONLY);
+    if (fd < 0) {
+        perror("Failed to open LED file for writing");
+        return;
+    }
+    char buffer[2];
+    snprintf(buffer, sizeof(buffer), "%d", state);
+    write(fd, buffer, strlen(buffer));
+    close(fd);
+}
+
+void list_leds() {
+    glob_t gl;
+    int ret = glob(LED_BASE_PATH, GLOB_NOCHECK, NULL, &gl);
+    if (ret != 0) {
+        perror("Glob failed");
+        return;
+    }
+
+    for (size_t i = 0; i < gl.gl_pathc; ++i) {
+        char *path_copy = strdup(gl.gl_pathv[i]);
+        if (path_copy == NULL) continue;
+        char *brightness_dir = dirname(path_copy);
+        char *led_name_dir = dirname(brightness_dir);
+        char *led_name = basename(led_name_dir);
+        printf("%s\n", led_name);
+        free(path_copy);
+    }
+    globfree(&gl);
+}
+
+int main(int argc, char *argv[]) {
+    drop_privileges();
+
+    glob_t gl;
+    int ret = glob(LED_BASE_PATH, GLOB_NOCHECK, NULL, &gl);
+    if (ret != 0 || gl.gl_pathc == 0) {
+        fprintf(stderr, "No LEDs found with the specified path pattern.\n");
+        globfree(&gl);
+        return EXIT_FAILURE;
+    }
+    
+    // Sort the paths to ensure consistent default LED selection
+    qsort(gl.gl_pathv, gl.gl_pathc, sizeof(char *), (int(*)(const void *, const void *))strcmp);
+
+    if (argc < 2) {
+        // No arguments provided, use the first LED as default
+        const char *default_led_path = gl.gl_pathv[0];
+        int state = get_led_state(default_led_path);
+        if (state != -1) {
+            printf("%d\n", state);
+        }
+        globfree(&gl);
+        return EXIT_SUCCESS;
+    }
+
+    if (strcmp(argv[1], "--list") == 0) {
+        list_leds();
+        globfree(&gl);
+        return EXIT_SUCCESS;
+    }
+
+    if (strcmp(argv[1], "--name") == 0) {
+        if (argc < 3) {
+            fprintf(stderr, "Usage: %s --name <led_name> [state]\n", argv[0]);
+            globfree(&gl);
+            return EXIT_FAILURE;
+        }
+
+        const char *led_name = argv[2];
+        char path_pattern[256];
+        snprintf(path_pattern, sizeof(path_pattern), "/sys/devices/platform/*leds/leds/%s/brightness", led_name);
+
+        glob_t gl_name;
+        int ret_name = glob(path_pattern, GLOB_NOCHECK, NULL, &gl_name);
+        if (ret_name != 0 || gl_name.gl_pathc == 0) {
+            fprintf(stderr, "LED '%s' not found.\n", led_name);
+            globfree(&gl);
+            globfree(&gl_name);
+            return EXIT_FAILURE;
+        }
+
+        const char *led_path = gl_name.gl_pathv[0];
+
+        if (argc == 3) {
+            int state = get_led_state(led_path);
+            if (state != -1) {
+                printf("%d\n", state);
+            }
+        } else if (argc == 4) {
+            int val = atoi(argv[3]);
+            set_led_state(led_path, val > 0 ? 1 : 0);
+        } else {
+            fprintf(stderr, "Usage: %s --name <led_name> [state]\n", argv[0]);
+            globfree(&gl);
+            globfree(&gl_name);
+            return EXIT_FAILURE;
+        }
+
+        globfree(&gl_name);
+        globfree(&gl);
+        return EXIT_SUCCESS;
+    }
+    
+    // Default behavior for direct state change on the first LED
+    const char *default_led_path = gl.gl_pathv[0];
+    int val = atoi(argv[1]);
+    set_led_state(default_led_path, val > 0 ? 1 : 0);
+    
+    globfree(&gl);
+    return EXIT_SUCCESS;
 }
